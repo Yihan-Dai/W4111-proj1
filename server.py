@@ -15,6 +15,7 @@ Read about it online.
 """
 
 import os
+#from os import time
 from sqlalchemy import *
 from sqlalchemy.pool import NullPool
 from flask import Flask, request, render_template, g, redirect, Response
@@ -46,13 +47,13 @@ engine = create_engine(DATABASEURI)
 # Example of running queries in your database
 # Note that this will probably not work if you already have a table named 'test' in your database, containing meaningful data. This is only an example showing you how to run queries in your database using SQLAlchemy.
 #
+'''
 engine.execute("""CREATE TABLE IF NOT EXISTS test (
   id serial,
   name text
 );""")
 engine.execute("""INSERT INTO test(name) VALUES ('grace hopper'), ('alan turing'), ('ada lovelace');""")
-
-
+'''
 @app.before_request
 def before_request():
   """
@@ -152,7 +153,8 @@ def index():
   # render_template looks in the templates/ folder for files.
   # for example, the below file reads template/index.html
   #
-  return render_template("index.html", **context)
+  #return render_template("index.html", **context)
+  return render_template("Home.html")
 
 #
 # This is an example of a different path.  You can see it at:
@@ -162,18 +164,227 @@ def index():
 # Notice that the function name is another() rather than index()
 # The functions for each app.route need to have different names
 #
-@app.route('/another')
-def another():
-  return render_template("another.html")
+
+@app.route('/Change_gpa',methods=['GET', 'POST'])
+def Change_gpa():
+  if request.method == 'POST':
+    gpa = request.form['gpa']
+    student = request.form['Student_name']
+    gpa = float(gpa)
+    
+    g.conn.execute("UPDATE student set gpa = %.2f where sname = '%s'" %(gpa,student))
+    return redirect('/Change_gpa')
+  else:
+      cursor = g.conn.execute(""" select s2.sid, s2.sname,s2.gpa,s1.course_name from student_course s1, prof_course p1, professor p2, student s2
+        where p1.course_name = s1.course_name and p2.pid = p1.pid and s1.sid = s2.sid and p2.prof_name = '%s'
+        """%prof_name)
+      sid = []
+      prof_student = []
+      gpa = []
+      course = []
+      for cur in cursor:
+        sid.append(str(cur[0]))
+        prof_student.append(str(cur[1]))
+        gpa.append(str(cur[2]))
+        course.append(str(cur[3]))
+
+      context = {}
+      context['data'] ='Dear %s'%prof_name
+      context['sid'] = sid
+      context['student'] = prof_student
+      context['gpa'] = gpa
+      context['course'] = course
+      return render_template("change_gpa.html", **context)
+
+@app.route('/Add_new_course',methods=['GET', 'POST'])
+def add_new_course():
+  if request.method == 'POST':
+    course = request.form['coursename']
+    g.conn.execute("INSERT into course(course_name) values ('%s')"%course)
+    g.conn.execute("INSERT INTO prof_course(pid,course_name) values ('%s','%s')" %('p1',course))
+    return redirect('/Add_new_course')
+  else:
+    context = {} 
+    context['data'] ='Dear %s'%prof_name
+    cursor = g.conn.execute("""select p1.course_name, p1.pid from prof_course p1, professor p2
+      where p1.pid = p2.pid and p2.prof_name = '%s'"""%prof_name)
+    course = []
+    for cur in cursor:
+      course.append(cur[0])
+      pid = cur[1]
+      
+    context['pid'] = pid
+    context['course'] = course
+    return render_template("add_new_course.html", **context)
+
+
+@app.route('/Update_new_TA',methods=['GET', 'POST'])
+def update_new_ta():
+  global ta_name
+  cursor = g.conn.execute("select count(*) from ta")
+  for cur in cursor:
+    number = int(cur[0])+1
+
+  if request.method == 'GET':
+    context = {}
+    context['data'] = 'Dear %s'%prof_name
+    cursor = g.conn.execute("""select t2.tname,t2.tid from professor p1, ta_worksfor_prof t1, ta t2 
+      where t1.pid = p1.pid and t1.tid = t2.tid and p1.prof_name = '%s'"""%prof_name)
+    tid = []
+    ta_name = []
+    for cur in cursor:
+      ta_name.append(str(cur[0]))
+      tid.append(str(cur[1]))
+    context['ta_name'] = ta_name
+    context['tid'] = tid
+    #end_title = 'End'
+    context['End'] = title1
+    return render_template("update_new_ta.html",**context)
+  else:
+    global title1
+    taname = request.form['taname']
+    action = request.form['action']
+    if action == "Add":
+      if taname in ta_name:
+        print title1
+        title1 = "The name has already been in the TA list"
+        
+      else:
+        new_tid = 't%d'%number
+        g.conn.execute("INSERT into ta(tid,tname) values ('%s','%s')"%(new_tid,taname))
+        g.conn.execute("INSERT into ta_worksfor_prof(pid,tid) values ('%s','%s')" %('p1',new_tid))
+
+        title1 = 'Successfully added'
+    
+    elif action == "Delete":
+      if taname not in ta_name:
+        title1 = "The name is not in the TA list"
+      else:
+        cursor = g.conn.execute("select tid from ta where tname = '%s'"%taname)
+        for cur in cursor:
+          delete_tid = cur[0]
+        g.conn.execute("DELETE from ta_worksfor_prof where tid = '%s'"%delete_tid)
+        g.conn.execute("DELETE from ta where tname = '%s'"%taname)
+        
+        title1 = 'Successfully Deleted'
+      
+    elif action == "Change":
+      if taname not in ta_name:
+        title1 = "The name is not in the TA list"
+      else:
+        ta_new_name = request.form['tanewname']
+        g.conn.execute("update ta set tname = '%s' where tname = '%s'"%(ta_new_name,taname))
+        title1 = "Successfully Changed"
+
+    return redirect('/Update_new_TA')
+
+
+
+
+@app.route('/professor')
+def get():
+  context = dict(data = "Welcome ...Professors you can look up all the information and update grades and arrange courses")
+  #context = "Welcome ...Professors you can look up all the information and update grades and arrange courses"
+  return render_template('Professor.html',**context)
 
 
 # Example of adding new data to the database
-@app.route('/add', methods=['POST'])
-def add():
-  name = request.form['name']
-  g.conn.execute('INSERT INTO test VALUES (NULL, ?)', name)
-  return redirect('/')
+@app.route('/prof_login', methods=['POST'])
+def Login():
+  global prof_name, title1
+  title1 = "End"
+  
+  username = request.form['username']
+  pwd = request.form['password']
+  print username, pwd
+  cursor = g.conn.execute("SELECT * FROM profe_login")
+  for result in cursor:
+    user, pwd_db = result
+    #print user,pwd
+    pwd = 'Brian, C.'
+    if username in user and pwd in pwd_db:
+      print True
+      prof_name = username
+      return redirect('/prof_update')
+  print False
+  context = dict(data = "Sorry Professor! Error, the password is wrong! or No such kind of user!")
+  return render_template('Professor.html', **context)
+  #g.conn.execute("INSERT INTO test(name) values ('%s')" %(name))
 
+@app.route('/prof_update')
+def prof_update():
+  print prof_name,title1
+  cursor = g.conn.execute("""select * from prof_course p1,professor p2 
+    where p1.pid = p2.pid and p2.prof_name = '%s'"""%prof_name)
+  for cur in cursor:
+    pid = cur[0].rstrip(' ')
+    coursename = cur[1]
+    position = cur[4]
+    oh = cur[5]
+
+  cursor = g.conn.execute("""select t2.tname from professor p1, ta_worksfor_prof t1, ta t2 
+    where t1.pid = p1.pid and t1.tid = t2.tid and p1.prof_name = '%s'"""%prof_name)
+  ta_name = []
+  for cur in cursor:
+    ta_name.append(str(cur[0]))
+
+
+  cursor = g.conn.execute(""" select s2.sname from student_course s1, prof_course p1, professor p2, student s2
+    where p1.course_name = s1.course_name and p2.pid = p1.pid and s1.sid = s2.sid and p2.prof_name = '%s'
+    """%prof_name)
+  student_name = []
+  for cur in cursor:
+    student_name.append(str(cur[0]))
+
+  cursor = g.conn.execute("""select s.dept_name,s.school_name 
+    from professor p1, prof_works_dept p2, school_house_department s
+    where p1.pid = p2.pid and p2.dept_name = s.dept_name and p1.prof_name ='%s'"""%prof_name)
+  for cur in cursor:
+    dept, school = cur
+
+  context = {'data':'1:3333'}
+  context1 = {'data': 'Dear %s'%prof_name, 'pid': pid, 'course': coursename, 'position':position, 'oh':oh}
+  context1['ta_name'] = ta_name
+  context1['student'] = student_name
+  context1['dept'] = dept
+  context1['school'] = school
+  return render_template('professor_update.html', ** context1)
+
+@app.route('/student')
+def student():
+  context = dict(data = "Welcome ...Students you can look up all the related information")
+  return render_template('student.html', **context)
+
+@app.route('/stud_login', methods = ['POST'])
+def stud_login():
+  global stud_name
+  username = request.form['username']
+  pwd = request.form['password']
+  pwd = 'Jacobs, T.'
+  cursor = g.conn.execute("select * from stu_login")
+  for cur in cursor:
+    if username in cur[0] and pwd in cur[1]:
+      print True
+      stud_name = username
+      return redirect('/stu_update')
+  print False
+  context = dict(data = '"Sorry Studnets! Error! the password is wrong! or No such kind of user!" ')
+  return redirect('student.html', **context)
+
+
+@app.route('/stu_update')
+def stu_update():
+  context = {}
+  context['data'] = 'Dear %s'%stud_name
+  cursor = g.conn.execute("select * from student where student.sname = '%s'" %stud_name)
+  for cur in cursor:
+    sid = cur[0]
+    gpa = cur[2]
+    age = cur[3]
+  context['sid'] = sid
+  context['gpa'] = gpa
+  context['age'] = age
+  return redirect('student_update.html', **context)
 
 @app.route('/login')
 def login():
@@ -201,10 +412,10 @@ if __name__ == "__main__":
         python server.py --help
 
     """
-
+    debug = True
     HOST, PORT = host, port
     print "running on %s:%d" % (HOST, PORT)
     app.run(host=HOST, port=PORT, debug=debug, threaded=threaded)
-
-
+  #app.debug = True
   run()
+  #app.run()
